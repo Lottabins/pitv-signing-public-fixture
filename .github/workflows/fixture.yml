@@ -1,0 +1,52 @@
+# Harmless public fixture; exact source approval and enabled=true are required.
+name: Harmless signing boundary fixture
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  attest:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    environment: pitv-harmless-signing-fixture
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Require exact independently approved fixture source
+        env:
+          ENABLED: ${{ vars.PITV_FIXTURE_ENABLED }}
+          APPROVED_SOURCE: ${{ vars.PITV_FIXTURE_APPROVED_SOURCE }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re
+          e=os.environ
+          assert e['ENABLED']=='true'
+          assert re.fullmatch('[0-9a-f]{40}',e['GITHUB_SHA'])
+          assert e['APPROVED_SOURCE']==e['GITHUB_SHA']
+          assert e['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert e['GITHUB_REF']=='refs/heads/main'
+          assert e['GITHUB_REPOSITORY']=='Lottabins/pitv-signing-public-fixture'
+          assert e['GITHUB_WORKFLOW_REF']=='Lottabins/pitv-signing-public-fixture/.github/workflows/fixture.yml@refs/heads/main'
+          assert e['GITHUB_WORKFLOW_SHA']==e['GITHUB_SHA']
+          assert e['RUNNER_ENVIRONMENT']=='github-hosted'
+          assert re.fullmatch('[1-9][0-9]*',e['GITHUB_RUN_ID']) and e['GITHUB_RUN_ATTEMPT']=='1'
+          value={'kind':'pitv-harmless-signing-boundary-fixture-v1','repository':e['GITHUB_REPOSITORY'],'source':e['GITHUB_SHA'],'run':e['GITHUB_RUN_ID'],'attempt':'1'}
+          with open('subject.json','x') as f:json.dump(value,f,sort_keys=True);f.write('\n')
+          PY
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        id: attest
+        with:
+          subject-path: subject.json
+      - name: Retain emitted bundle
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: install -m 0644 -- "$BUNDLE" subject.sigstore.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: harmless-signing-boundary
+          path: |
+            subject.json
+            subject.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
